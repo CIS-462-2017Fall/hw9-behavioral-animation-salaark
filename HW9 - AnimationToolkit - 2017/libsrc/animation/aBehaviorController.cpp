@@ -119,6 +119,7 @@ void BehaviorController::reset()
 	m_torque = 0.0;
 	m_thetad = 0.0;
 	m_vd = 0.0;
+
 }
 
 ///////////////////////////////////////////////////
@@ -157,21 +158,25 @@ void BehaviorController::control(double deltaT)
 
 		//  force and torque inputs are computed from vd and thetad as follows:
 		//              Velocity P controller : force = mass * Kv * (vd - v)
-		//              Heading PD controller : torque = Inertia * (-Kv * thetaDot -Kp * (thetad - theta))
+		//              Heading PD controller : torque = Inertia * (-Kv * thetaDot + Kp * (thetad - theta))
 		//  where the values of the gains Kv and Kp are different for each controller
 
-		// TODO: insert your code here to compute m_force and m_torque
+		// TEST: insert your code here to compute m_force and m_torque
+		m_vd = m_Vdesired.Length();
+		m_thetad = atan2(m_Vdesired[2], m_Vdesired[0]);
+		m_force[2] = gMass*gVelKv*(m_vd - m_state[VEL][2]);
+		double thetaDot = m_state[3][1];
+		double theta = m_state[1][1];
+		double thetadiff = m_thetad - theta;
+		ClampAngle(thetadiff);
+		m_torque[1] = gInertia*(-1.0*gOriKv*thetaDot + gOriKp*thetadiff);
 
-
-
-
-
-
-
-
-
-
-
+		if(m_force.Length() > gMaxForce) {
+			m_force *= gMaxForce/m_force.Length();
+		}
+		if(m_torque.Length() > gMaxTorque) {
+			m_torque *= gMaxTorque/m_torque.Length();
+		}
 
 
 		// when agent desired agent velocity and actual velocity < 2.0 then stop moving
@@ -210,42 +215,62 @@ void BehaviorController::computeDynamics(vector<vec3>& state, vector<vec3>& cont
 	vec3& torque = controlInput[1];
 
 	// Compute the stateDot vector given the values of the current state vector and control input vector
-	// TODO: add your code here
-
-
-
-
-
+	// TEST: add your code here
+	double theta = state[1][1];
+	double x_vel = cos(theta)*state[2][2];
+	double z_vel = sin(theta)*state[2][2];
+	stateDot[0] = vec3(x_vel, 0.0, z_vel);
+	stateDot[1] = state[3];
+	stateDot[2] = force / gMass;
+	stateDot[3] = torque / gInertia;
 }
 
 void BehaviorController::updateState(float deltaT, int integratorType)
 {
-	//  Update the state vector given the m_stateDot vector using Euler (integratorType = 0) or RK2 (integratorType = 1) integratio
+	//  Update the state vector given the m_stateDot vector using Euler (integratorType = 0) or RK2 (integratorType = 1) integration
 	//  this should be similar to what you implemented in the particle system assignment
 
-	// TODO: add your code here
-	
-
-
-
-
-
+	// TEST: add your code here
+	if(integratorType == 0) {
+		//Euler integration
+		m_state[0] = m_state[0]+m_stateDot[0]*deltaT;
+		m_state[1] = m_state[1]+m_stateDot[1]*deltaT;
+		m_state[2] = m_state[2]+m_stateDot[2]*deltaT;
+		m_state[3] = m_state[3]+m_stateDot[3]*deltaT;
+	} else if(integratorType == 1) {
+		// Runge Kutta 2 integration
+		vector<vec3> newState(4);
+		newState[0] = m_state[0] + m_stateDot[0]*deltaT;
+		newState[1] = m_state[1] + m_stateDot[1]*deltaT;
+		newState[2] = m_state[2] + m_stateDot[2]*deltaT;
+		newState[3] = m_state[3] + m_stateDot[3]*deltaT;
+		vector<vec3> stateDot2(4);
+		computeDynamics(newState, m_controlInput, stateDot2, deltaT);
+		m_state[0] = m_state[0]+((m_stateDot[0]+stateDot2[0])*deltaT/2.f);
+		m_state[1] = m_state[1]+((m_stateDot[1]+stateDot2[1])*deltaT/2.f);
+		m_state[2] = m_state[2]+((m_stateDot[2]+stateDot2[2])*deltaT/2.f);
+		m_state[3] = m_state[3]+((m_stateDot[3]+stateDot2[3])*deltaT/2.f);
+	}
 
 
 	//  given the new values in m_state, these are the new component state values 
 	m_Pos0 = m_state[POS];
+	m_Vel0 = m_stateDot[0];
 	m_Euler = m_state[ORI];
 	m_VelB = m_state[VEL];
 	m_AVelB = m_state[AVEL];
 
 	//  Perform validation check to make sure all values are within MAX values
-	// TODO: add your code here
-
-
-
-
-
-
+	// TEST: add your code here
+	if(m_VelB.Length() > gMaxSpeed) {
+		m_VelB *= gMaxSpeed/m_VelB.Length();
+		m_state[VEL] = m_VelB;
+	}
+	if(m_AVelB.Length() > gMaxAngularSpeed) {
+		m_AVelB *= gMaxAngularSpeed/m_AVelB.Length();
+		m_state[AVEL] = m_AVelB;
+	}
+	ClampAngle(m_Euler[1]);
 
 
 	// update the guide orientation
@@ -270,7 +295,6 @@ void BehaviorController::updateState(float deltaT, int integratorType)
 	mat3 rot(right, up, dir);
 	m_Guide.setLocalRotation(rot.Transpose());
 	m_Guide.setLocalTranslation(m_Guide.getLocalTranslation() + m_Vel0*deltaT);
-
 }
 
 
